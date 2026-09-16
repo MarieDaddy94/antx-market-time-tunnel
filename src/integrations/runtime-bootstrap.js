@@ -1,5 +1,6 @@
 import { createAssistantBridge } from './assistant-bridge.js';
 import { InteractionController } from '../ui/interaction-controller.js';
+import { installProviderControl } from '../ui/provider-control.js';
 import { ProviderManager } from '../core/provider-manager.js';
 
 function waitForRuntime(timeoutMs = 10000) {
@@ -55,22 +56,41 @@ async function boot() {
     allowedOrigins: [location.origin],
   });
 
-  const providers = new ProviderManager();
-  // Keep live providers opt-in during this integration batch so the current stable
-  // simulated chart source is not silently replaced before source switching is tested.
+  const providers = new ProviderManager({ preferLiveCrypto: false });
+  const providerControl = installProviderControl({ manager: providers, store });
+
+  providers.subscribe((event) => {
+    if (event.type === 'error') {
+      store.patch('runtime.lastError', String(event.error?.message || event.error || 'Live provider error'), { markDirty: false });
+    }
+    if (event.type === 'fallback') {
+      store.patch('runtime.provider', 'simulated', { markDirty: false });
+    }
+    if (event.type === 'status' || event.type === 'provider-preference') {
+      const symbol = store.getState().market.activeSymbol;
+      store.patch('runtime.provider', providers.providerNameFor(symbol), { markDirty: false });
+    }
+  });
+
+  try {
+    await providers.start();
+  } catch (error) {
+    console.warn('ANTX provider manager started with simulated fallback', error);
+  }
+
   window.ANTXProviders = providers;
+  window.ANTXProviderControl = providerControl;
   window.ANTXInteraction = interaction;
   window.ANTXExternalBridge = bridge;
-
-  const providerNode = document.querySelector('#providerName');
-  if (providerNode) providerNode.title = 'Live crypto provider adapter is installed; current chart source remains the stable simulated provider until explicitly switched.';
 
   window.dispatchEvent(new CustomEvent('antx:integration-ready', {
     detail: {
       bridge: true,
       interaction: true,
-      liveProviderAvailable: true,
-      liveProviderActive: false,
+      providerSelector: true,
+      liveProviderAvailable: providers.liveCrypto.status === 'live',
+      liveProviderActive: providers.preferLiveCrypto && providers.liveCrypto.status === 'live',
+      diagnostics: providers.diagnostics(),
     },
   }));
 }
