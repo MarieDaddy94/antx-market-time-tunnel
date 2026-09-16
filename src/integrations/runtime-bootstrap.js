@@ -1,7 +1,9 @@
 import { createAssistantBridge } from './assistant-bridge.js';
 import { InteractionController } from '../ui/interaction-controller.js';
 import { installProviderControl } from '../ui/provider-control.js';
+import { installMicrostructurePanel } from '../ui/microstructure-panel.js';
 import { ProviderManager } from '../core/provider-manager.js';
+import { MarketRuntime } from '../core/market-runtime.js';
 
 function waitForRuntime(timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
@@ -57,7 +59,9 @@ async function boot() {
   });
 
   const providers = new ProviderManager({ preferLiveCrypto: false });
+  const marketRuntime = new MarketRuntime({ manager: providers, store });
   const providerControl = installProviderControl({ manager: providers, store });
+  const microstructurePanel = installMicrostructurePanel({ runtime: marketRuntime, store });
 
   providers.subscribe((event) => {
     if (event.type === 'error') {
@@ -72,14 +76,31 @@ async function boot() {
     }
   });
 
+  marketRuntime.subscribe((event) => {
+    if (event.type === 'snapshot' || event.type === 'bar' || event.type === 'provider-preference' || event.type === 'status') {
+      window.dispatchEvent(new CustomEvent('antx:market-runtime', {
+        detail: {
+          type: event.type,
+          provider: marketRuntime.diagnostics().activeProvider,
+          symbol: marketRuntime.diagnostics().activeSymbol,
+          snapshot: event.snapshot || marketRuntime.snapshot(),
+        },
+      }));
+    }
+  });
+
   try {
     await providers.start();
+    marketRuntime.start();
   } catch (error) {
     console.warn('ANTX provider manager started with simulated fallback', error);
+    marketRuntime.start();
   }
 
   window.ANTXProviders = providers;
+  window.ANTXMarketRuntime = marketRuntime;
   window.ANTXProviderControl = providerControl;
+  window.ANTXMicrostructure = microstructurePanel;
   window.ANTXInteraction = interaction;
   window.ANTXExternalBridge = bridge;
 
@@ -88,9 +109,11 @@ async function boot() {
       bridge: true,
       interaction: true,
       providerSelector: true,
+      marketRuntime: true,
+      microstructure: true,
       liveProviderAvailable: providers.liveCrypto.status === 'live',
       liveProviderActive: providers.preferLiveCrypto && providers.liveCrypto.status === 'live',
-      diagnostics: providers.diagnostics(),
+      diagnostics: marketRuntime.diagnostics(),
     },
   }));
 }
