@@ -1,3 +1,20 @@
+const STYLE_ID = 'antx-provider-control-style';
+
+function ensureStyles() {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = `
+    .provider-control{margin-top:10px;padding-top:10px;border-top:1px solid var(--line,#1a2938)}
+    .provider-control-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end;margin-bottom:8px}
+    .provider-control-grid label{display:grid;gap:5px;font-size:9px;color:#7f90a4}
+    .provider-health{min-width:92px;border:1px solid var(--line,#1a2938);border-radius:8px;padding:8px;background:#080d13}
+    .provider-health span{display:block;font-size:8px;color:#708297;text-transform:uppercase;letter-spacing:.08em}
+    .provider-health b{display:block;margin-top:3px;font-size:9px;color:#dce6ef}
+  `;
+  document.head.appendChild(style);
+}
+
 export class ProviderControl {
   constructor({ manager, store }) {
     this.manager = manager;
@@ -11,6 +28,7 @@ export class ProviderControl {
     const anchor = document.querySelector(anchorSelector);
     const card = anchor?.closest('.card') || anchor?.parentElement;
     if (!card) return false;
+    ensureStyles();
 
     this.root = document.createElement('div');
     this.root.className = 'provider-control';
