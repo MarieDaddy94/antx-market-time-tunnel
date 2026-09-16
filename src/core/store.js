@@ -116,7 +116,7 @@ export class AppStore {
 
   setState(next, meta = {}) {
     this.state = typeof next === 'function' ? next(this.state) : next;
-    this.state.workspace.dirty = meta.markDirty !== false;
+    if (meta.markDirty !== false) this.state.workspace.dirty = true;
     this.emit(meta);
   }
 
@@ -129,7 +129,7 @@ export class AppStore {
     this.setState(next, meta);
   }
 
-  transact(label, mutator, { reversible = true, source = 'system' } = {}) {
+  transact(label, mutator, { reversible = true, source = 'system', markDirty = true } = {}) {
     const before = clone(this.state);
     const next = clone(this.state);
     mutator(next);
@@ -138,9 +138,9 @@ export class AppStore {
       if (this.history.length > this.maxHistory) this.history.shift();
       this.future = [];
     }
-    next.workspace.dirty = true;
+    if (markDirty) next.workspace.dirty = true;
     this.state = next;
-    this.emit({ label, source });
+    this.emit({ label, source, markDirty });
   }
 
   undo() {
@@ -148,6 +148,7 @@ export class AppStore {
     if (!entry) return false;
     this.future.push({ ...entry, before: clone(entry.before), after: clone(entry.after) });
     this.state = clone(entry.before);
+    this.state.workspace.dirty = true;
     this.emit({ label: `Undo ${entry.label}`, source: 'history' });
     return true;
   }
@@ -157,6 +158,7 @@ export class AppStore {
     if (!entry) return false;
     this.history.push({ ...entry, before: clone(entry.before), after: clone(entry.after) });
     this.state = clone(entry.after);
+    this.state.workspace.dirty = true;
     this.emit({ label: `Redo ${entry.label}`, source: 'history' });
     return true;
   }
@@ -241,6 +243,6 @@ export class AppStore {
     this.revisions = new Map(payload.revisions || []);
     this.history = [];
     this.future = [];
-    this.emit({ label: 'Hydrate workspace', source: 'persistence' });
+    this.emit({ label: 'Hydrate workspace', source: 'persistence', markDirty: false });
   }
 }
