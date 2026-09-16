@@ -17,10 +17,10 @@ export class ReplayEngine {
     const bars = this.getHistory(symbol);
     if (!bars.length) return;
     this.store.transact('Set replay bounds', (state) => {
-      state.replay.minTime = bars[0].t;
+      state.replay.minTime = bars[0].endT;
       state.replay.maxTime = bars.at(-1).endT;
       if (!state.replay.cursor) state.replay.cursor = bars.at(-1).endT;
-    }, { reversible: false, source: 'Replay' });
+    }, { reversible: false, source: 'Replay', markDirty: false });
   }
 
   enable(time = null) {
@@ -32,8 +32,8 @@ export class ReplayEngine {
       state.replay.playing = false;
       state.replay.followLive = false;
       state.runtime.mode = 'replay';
-      state.replay.cursor = time ?? replay.cursor ?? replay.maxTime;
-    }, { reversible: false, source: 'Replay' });
+      state.replay.cursor = this.snapToCompletedBar(symbol, time ?? replay.cursor ?? replay.maxTime);
+    }, { reversible: false, source: 'Replay', markDirty: false });
     this.emit();
   }
 
@@ -44,7 +44,7 @@ export class ReplayEngine {
       state.replay.playing = false;
       state.replay.followLive = true;
       state.runtime.mode = 'live';
-    }, { reversible: false, source: 'Replay' });
+    }, { reversible: false, source: 'Replay', markDirty: false });
     this.emit();
   }
 
@@ -75,14 +75,33 @@ export class ReplayEngine {
   }
 
   stepBars(count = 1) {
+    const symbol = this.store.getState().market.activeSymbol;
+    if (!this.getState().enabled) this.enable();
     const replay = this.getState();
-    if (!replay.enabled) this.enable();
-    this.seek(replay.cursor + count * MINUTE);
+    const bars = this.getHistory(symbol);
+    const completed = bars.map((b) => b.endT);
+    let index = completed.findIndex((t) => t >= replay.cursor);
+    if (index < 0) index = completed.length - 1;
+    index = Math.max(0, Math.min(completed.length - 1, index + count));
+    this.seek(completed[index]);
+  }
+
+  snapToCompletedBar(symbol, time) {
+    const bars = this.getHistory(symbol);
+    if (!bars.length) return time;
+    let candidate = bars[0].endT;
+    for (const bar of bars) {
+      if (bar.endT > time) break;
+      candidate = bar.endT;
+    }
+    return candidate;
   }
 
   seek(time) {
+    const symbol = this.store.getState().market.activeSymbol;
     const replay = this.getState();
-    const cursor = Math.max(replay.minTime ?? time, Math.min(replay.maxTime ?? time, time));
+    const bounded = Math.max(replay.minTime ?? time, Math.min(replay.maxTime ?? time, time));
+    const cursor = this.snapToCompletedBar(symbol, bounded);
     this.store.patch('replay.cursor', cursor, { source: 'Replay', markDirty: false });
     this.emit();
   }
@@ -91,10 +110,7 @@ export class ReplayEngine {
     const replay = this.getState();
     const full = this.getHistory(symbol);
     const cursor = replay.enabled ? replay.cursor : full.at(-1)?.endT;
-    const safeBars = full.filter((bar) => bar.t < cursor).map((bar) => {
-      if (bar.endT <= cursor) return bar;
-      return { ...bar, endT: cursor };
-    });
+    const safeBars = full.filter((bar) => bar.endT <= cursor);
     return {
       symbol,
       cursor,
@@ -112,7 +128,7 @@ export class ReplayEngine {
 
   assertNoFutureLeakage(snapshot = this.snapshot()) {
     const cursor = snapshot.cursor;
-    const bad = Object.values(snapshot.timeframes).flat().filter((bar) => bar.t >= cursor);
+    const bad = Object.values(snapshot.timeframes).flat().filter((bar) => bar.endT > cursor || bar.t >= cursor);
     return { pass: bad.length === 0, badCount: bad.length, cursor };
   }
 
