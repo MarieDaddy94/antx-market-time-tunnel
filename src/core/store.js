@@ -129,7 +129,7 @@ export class AppStore {
     this.setState(next, meta);
   }
 
-  transact(label, mutator, { reversible = true, source = 'system', markDirty = true } = {}) {
+  transact(label, mutator, { reversible = true, source = 'system', markDirty = null } = {}) {
     const before = clone(this.state);
     const next = clone(this.state);
     mutator(next);
@@ -138,9 +138,10 @@ export class AppStore {
       if (this.history.length > this.maxHistory) this.history.shift();
       this.future = [];
     }
-    if (markDirty) next.workspace.dirty = true;
+    const shouldDirty = markDirty ?? !['Renderer', 'Market', 'Replay', 'Persistence'].includes(source);
+    if (shouldDirty) next.workspace.dirty = true;
     this.state = next;
-    this.emit({ label, source, markDirty });
+    this.emit({ label, source, markDirty: shouldDirty });
   }
 
   undo() {
